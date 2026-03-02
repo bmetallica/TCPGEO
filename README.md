@@ -10,7 +10,7 @@
 
 **Echtzeit-Visualisierung von Server-Traffic auf einer interaktiven 2D- und 3D-Weltkarte mittels tcpdump über ssh.**
 
-TCPGEO verbindet sich per SSH mit Servern, führt `tcpdump` aus, löst die erfassten IPs über MaxMind GeoIP auf und zeigt den Traffic live auf einem Cyberpunk-3D-Globus sowie einer 2D-Leaflet-Karte an.
+TCPGEO verbindet sich per SSH mit Servern, führt `tcpdump` aus, löst die erfassten IPs über MaxMind GeoIP auf und zeigt den Traffic live auf einem Cyber-3D-Globus sowie einer 2D-Leaflet-Karte an.
 
 ![TCPGEO Screenshot](Screenshot.jpg)
 
@@ -21,7 +21,7 @@ TCPGEO verbindet sich per SSH mit Servern, führt `tcpdump` aus, löst die erfas
 - **Echtzeit-Traffic-Visualisierung** — Live-Arcs und Geo-Punkte auf 3D-Globus und 2D-Karte
 - **SSH-basiertes Capturing** — Verbindung zu beliebigen Servern via Passwort oder SSH-Key
 - **GeoIP-Auflösung** — Automatische IP → Standort-Zuordnung (Stadt, Land, Koordinaten)
-- **Cyberpunk-UI** — Dunkles Design mit Neon-Akzenten, HUD-Overlays und Starfield-Hintergrund
+- **Cyber-UI** — Dunkles Design mit Neon-Akzenten, HUD-Overlays und Starfield-Hintergrund
 - **Presets** — Konfigurierbare tcpdump-Filter pro Server (Interface, Filter, Regex)
 - **Multi-User** — JWT-basierte Authentifizierung mit Admin/Viewer-Rollen
 - **Server-Verwaltung** — CRUD für SSH-Server mit Verbindungstest
