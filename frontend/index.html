@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tcpgeo Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/cyberpunk.css" />
+</head>
+<body>
+
+<!-- Login Overlay -->
+<div id="login-overlay">
+  <div id="login-box">
+    <h1>TCPGEO</h1>
+    <label>Username</label>
+    <input type="text" id="login-user" autocomplete="username" />
+    <label>Passwort</label>
+    <input type="password" id="login-pass" autocomplete="current-password" />
+    <div id="login-error"></div>
+    <br />
+    <button id="login-btn" style="width:100%">Login</button>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  <div id="topbar">
+    <h1>TCPGEO</h1>
+    <div id="controls">
+      <select id="server-select"><option value="">-- Server --</option></select>
+      <select id="preset-select"><option value="">-- Preset --</option></select>
+      <button id="btn-start">&#9654; Start</button>
+      <button id="btn-stop" disabled>&#9632; Stop</button>
+      <span id="status-badge" class="status-badge status-stopped">OFFLINE</span>
+      <button id="btn-view-toggle">2D</button>
+      <button id="btn-log-toggle">Log</button>
+      <button id="btn-sidebar-toggle">&#9776;</button>
+      <span id="user-info" style="font-size:0.8em;color:#666"></span>
+      <button id="btn-logout" class="danger" style="font-size:0.75em">Logout</button>
+    </div>
+  </div>
+
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="globeViz"></div>
+    <div id="hud-status" class="hud-overlay hud-left">
+      <div class="hud-title">&#x25C8; Live Status</div>
+      <div class="hud-row"><span class="hud-label">Verbindung</span><span class="hud-val" id="hud-conn">OFFLINE</span></div>
+      <div class="hud-row"><span class="hud-label">Server</span><span class="hud-val" id="hud-server">—</span></div>
+      <div class="hud-row"><span class="hud-label">Uptime</span><span class="hud-val" id="hud-uptime">00:00:00</span></div>
+      <div class="hud-row"><span class="hud-label">Pakete/s</span><span class="hud-val live" id="hud-pps">0</span></div>
+      <div class="hud-bar"><div class="hud-bar-fill" id="hud-pps-bar" style="width:0%"></div></div>
+    </div>
+    <div id="hud-stats" class="hud-overlay hud-right">
+      <div class="hud-title">&#x25B6; Statistik</div>
+      <div class="hud-row"><span class="hud-val" id="hud-total">0</span><span class="hud-label">Pakete</span></div>
+      <div class="hud-row"><span class="hud-val" id="hud-ips">0</span><span class="hud-label">IPs</span></div>
+      <div class="hud-row"><span class="hud-val" id="hud-countries">0</span><span class="hud-label">Länder</span></div>
+      <div class="hud-row"><span class="hud-val" id="hud-top-country">—</span><span class="hud-label">Top Land</span></div>
+      <div class="hud-bar"><div class="hud-bar-fill" id="hud-countries-bar" style="width:0%"></div></div>
+    </div>
+
+    <div id="sidebar">
+      <h2>Admin</h2>
+      <div id="admin-panel"></div>
+    </div>
+
+    <div id="packet-log"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/three@0.155.0/build/three.min.js"></script>
+<script src="https://unpkg.com/globe.gl@2.32.6/dist/globe.gl.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment (enthält Secrets)
+.env
+
+# SQLite Datenbank
+db/*.sqlite
+db/*.sqlite-shm
+db/*.sqlite-wal
+
+# GeoIP Binärdaten
+geoip/*.mmdb
+geoip/*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+
+# IDE
+.vscode/
+.idea/

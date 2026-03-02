@@ -1,0 +1,16 @@
+[Unit]
+Description=tcpgeo - Echtzeit-Server-Traffic-Visualisierung
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tcpgeo
+ExecStart=/usr/bin/node /opt/tcpgeo/server.js
+Restart=on-failure
+RestartSec=5
+User=root
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/tcpgeo/.env
+
+[Install]
+WantedBy=multi-user.target
