@@ -131,22 +131,22 @@
       .atmosphereAltitude(0.18)
       .pointOfView({ lat: 30, lng: 10, altitude: 2.2 })
       .arcColor('color')
-      .arcAltitude(() => 0.04 + Math.random() * 0.25)
-      .arcStroke(() => 0.3 + Math.random() * 0.7)
-      .arcDashLength(0.6)
-      .arcDashGap(0.3)
-      .arcDashAnimateTime(() => 800 + Math.random() * 1500)
+      .arcAltitude('altitude')
+      .arcStroke('stroke')
+      .arcDashLength(0.5)
+      .arcDashGap(0.25)
+      .arcDashAnimateTime(1500)
       .pointColor('color')
       .pointAltitude(0.01)
       .pointRadius('size')
-      .pointsMerge(false)
+      .pointsMerge(true)
       .labelsData([])
       .labelText('label')
-      .labelSize(d => d.labelSize || 0.5)
+      .labelSize('labelSize')
       .labelDotRadius(0.08)
-      .labelColor(d => d.labelColor || 'rgba(0,220,255,0.85)')
-      .labelResolution(2)
-      .labelAltitude(0.05)
+      .labelColor('labelColor')
+      .labelResolution(1)
+      .labelAltitude(0.018)
       .labelIncludeDot(false);
 
     // Dark globe material
@@ -354,6 +354,7 @@
     socket.emit('stop');
     btnStart.disabled = false; btnStop.disabled = true;
     setStatus('stopped'); streaming = false;
+    stopGlobeTicker();
     addLogEntry('SYS', 'Gestoppt.');
   };
 
@@ -374,11 +375,13 @@
       stats.startTime = Date.now();
       const sel = serverSelect.options[serverSelect.selectedIndex];
       updateHUDStatus('LIVE', sel ? sel.textContent : '—');
+      startGlobeTicker();
     });
     socket.on('stopped', () => {
       streaming = false; btnStart.disabled = false; btnStop.disabled = true;
       setStatus('stopped'); addLogEntry('SYS', 'Capture beendet');
       updateHUDStatus('OFFLINE', '—');
+      stopGlobeTicker();
     });
     socket.on('status', (msg) => {
       if (msg === 'capturing') { setStatus('running'); addLogEntry('SSH', 'tcpdump aktiv'); }
@@ -395,7 +398,7 @@
       updateHUDStatus('FEHLER', '—');
     });
     socket.on('packets', (packets) => {
-      for (const pkt of packets) { addPacketToMap(pkt); addPacketToLog(pkt); }
+      handlePacketBatch(packets);
     });
     socket.on('connect_error', (err) => {
       if (err.message === 'Token ungültig' || err.message === 'Token fehlt') logout();
@@ -404,13 +407,155 @@
 
   // ---- Pakete auf Karte ----
   const MAX_MARKERS = 300;
-  const MAX_ARCS = 150;
   const MAX_POINTS = 200;
-  const MAX_LABELS = 100;
+  const MAX_LABELS = 40;
+  const ARC_TTL = 10000;       // Arcs verschwinden nach 10s
+  const ARC_SAFETY_CAP = 120;  // Harter Cap falls TTL nicht greift
   let serverLat = 50, serverLon = 10;
 
   let leafletArcs = []; // 2D arc polylines
   const MAX_LEAFLET_ARCS = 100;
+
+  // ---- Tiered Globe Update Ticker ----
+  // Jede Schicht hat eigene Update-Frequenz:
+  //   Arcs:   alle 500ms  (Tick 1,2,3,4...)
+  //   Points: alle 1000ms (Tick 2,4,6...)
+  //   Labels: alle 2000ms (Tick 4,8,12...)
+  let globeTicker = null;
+  let globeTickCount = 0;
+  let arcsDirty = false, pointsDirty = false, labelsDirty = false;
+
+  function startGlobeTicker() {
+    if (globeTicker) return;
+    globeTickCount = 0;
+    globeTicker = setInterval(globeTickFn, 500);
+  }
+
+  function stopGlobeTicker() {
+    if (globeTicker) { clearInterval(globeTicker); globeTicker = null; }
+  }
+
+  function globeTickFn() {
+    if (!globe) return;
+    globeTickCount++;
+
+    // Arcs: jeder Tick (500ms) — expire alte Arcs via TTL
+    if (arcsDirty) {
+      const cutoff = Date.now() - ARC_TTL;
+      arcsData = arcsData.filter(a => a._t > cutoff);
+      globe.arcsData(arcsData);
+      arcsDirty = false;
+    }
+
+    // Points: jeder 2. Tick (1000ms)
+    if (pointsDirty && globeTickCount % 2 === 0) {
+      globe.pointsData(pointsData);
+      pointsDirty = false;
+    }
+
+    // Labels: jeder 4. Tick (2000ms) — teuerste Schicht
+    if (labelsDirty && globeTickCount % 4 === 0) {
+      globe.labelsData(labelsData);
+      labelsDirty = false;
+    }
+  }
+
+  // Track seen IPs to avoid duplicate labels
+  const seenLabelIPs = new Set();
+
+  // Process an entire batch of packets, then update globe + HUD + log ONCE
+  function handlePacketBatch(packets) {
+    const logFragment = document.createDocumentFragment();
+    const is3D = viewMode === '3d';
+    const nowTs = new Date().toLocaleTimeString('de-DE');
+
+    for (const pkt of packets) {
+      // Track stats (without DOM update per packet)
+      stats.total++;
+      stats.ips.add(pkt.ip);
+      if (pkt.country) {
+        stats.countries.add(pkt.country);
+        stats.countryCount[pkt.country] = (stats.countryCount[pkt.country] || 0) + 1;
+      }
+      stats.ppsBuffer.push(Date.now());
+
+      const ci = stats.total % POINT_COLORS.length;
+
+      // 2D: nur wenn Leaflet sichtbar
+      if (!is3D) {
+        const marker = L.circleMarker([pkt.lat, pkt.lon], {
+          radius: 5, color: POINT_COLORS[ci], fillColor: POINT_COLORS[ci], fillOpacity: 0.7, weight: 1
+        }).addTo(map);
+        marker.bindTooltip(pkt.ip + '<br>' + pkt.city + ', ' + pkt.country);
+        markers.push(marker);
+        if (markers.length > MAX_MARKERS) map.removeLayer(markers.shift());
+
+        const arcLine = createLeafletArc([pkt.lat, pkt.lon], [serverLat, serverLon], POINT_COLORS[ci]);
+        if (arcLine) {
+          arcLine.addTo(map);
+          leafletArcs.push(arcLine);
+          if (leafletArcs.length > MAX_LEAFLET_ARCS) map.removeLayer(leafletArcs.shift());
+        }
+      }
+
+      // 3D: nur Arrays füllen, kein globe-Update
+      if (is3D && globe) {
+        const ac = ARC_COLORS[stats.total % ARC_COLORS.length];
+        arcsData.push({
+          startLat: pkt.lat, startLng: pkt.lon,
+          endLat: serverLat, endLng: serverLon,
+          color: ac,
+          altitude: 0.04 + Math.random() * 0.22,
+          stroke: 0.35 + Math.random() * 0.55,
+          _t: Date.now()
+        });
+        // Harter Safety-Cap (TTL räumt im Ticker auf)
+        if (arcsData.length > ARC_SAFETY_CAP) arcsData.splice(0, arcsData.length - ARC_SAFETY_CAP);
+        arcsDirty = true;
+
+        // Points: merged via pointsMerge → single geometry rebuild
+        pointsData.push({
+          lat: pkt.lat, lng: pkt.lon,
+          size: 0.25 + Math.random() * 0.3,
+          color: POINT_COLORS[ci]
+        });
+        if (pointsData.length > MAX_POINTS) pointsData.shift();
+        pointsDirty = true;
+
+        // Labels: nur für neue IPs (teuerste Schicht)
+        if (!seenLabelIPs.has(pkt.ip)) {
+          seenLabelIPs.add(pkt.ip);
+          const labelText = (pkt.city && pkt.country) ? pkt.city + ', ' + pkt.country
+            : pkt.country || pkt.city || pkt.ip;
+          labelsData.push({
+            lat: pkt.lat, lng: pkt.lon,
+            label: labelText,
+            labelSize: 0.55,
+            labelColor: POINT_COLORS[ci]
+          });
+          if (labelsData.length > MAX_LABELS) labelsData.shift();
+          labelsDirty = true;
+          // Bereinige seenLabelIPs wenn zu groß
+          if (seenLabelIPs.size > 500) seenLabelIPs.clear();
+        }
+      }
+
+      // Build log entry into fragment (no live DOM manipulation yet)
+      const e = document.createElement('div');
+      e.className = 'log-entry';
+      e.innerHTML = '<span class="log-ts">' + nowTs + '</span> <span class="log-ip">' + pkt.ip + '</span> <span class="log-geo">' + (pkt.city || '?') + ', ' + (pkt.country || '?') + ' (' + pkt.lat.toFixed(2) + ', ' + pkt.lon.toFixed(2) + ')</span>';
+      logFragment.appendChild(e);
+    }
+
+    // Globe-Ticker läuft separat — hier nur dirty-flags setzen (oben erledigt)
+
+    // Single HUD DOM update
+    updateHUDStats();
+
+    // Single log DOM update
+    packetLog.appendChild(logFragment);
+    trimLog();
+  }
 
   // ---- HUD Stats ----
   let stats = { total: 0, ips: new Set(), countries: new Set(), countryCount: {}, ppsBuffer: [], startTime: null };
@@ -472,65 +617,6 @@
     if (tc) tc.textContent = topC;
   }
 
-  function trackPacket(pkt) {
-    stats.total++;
-    stats.ips.add(pkt.ip);
-    if (pkt.country) {
-      stats.countries.add(pkt.country);
-      stats.countryCount[pkt.country] = (stats.countryCount[pkt.country] || 0) + 1;
-    }
-    stats.ppsBuffer.push(Date.now());
-    updateHUDStats();
-  }
-
-  function addPacketToMap(pkt) {
-    trackPacket(pkt);
-
-    // 2D: marker + arc
-    const ci = stats.total % POINT_COLORS.length;
-    const marker = L.circleMarker([pkt.lat, pkt.lon], {
-      radius: 5, color: POINT_COLORS[ci], fillColor: POINT_COLORS[ci], fillOpacity: 0.7, weight: 1
-    }).addTo(map);
-    marker.bindTooltip(pkt.ip + '<br>' + pkt.city + ', ' + pkt.country);
-    markers.push(marker);
-    if (markers.length > MAX_MARKERS) map.removeLayer(markers.shift());
-
-    // 2D arc
-    const arcLine = createLeafletArc([pkt.lat, pkt.lon], [serverLat, serverLon], POINT_COLORS[ci]);
-    if (arcLine) {
-      arcLine.addTo(map);
-      leafletArcs.push(arcLine);
-      if (leafletArcs.length > MAX_LEAFLET_ARCS) map.removeLayer(leafletArcs.shift());
-    }
-
-    // 3D: arc + point (multicolor)
-    if (globe) {
-      const ac = ARC_COLORS[stats.total % ARC_COLORS.length];
-      arcsData.push({
-        startLat: pkt.lat, startLng: pkt.lon,
-        endLat: serverLat, endLng: serverLon,
-        color: ac
-      });
-      if (arcsData.length > MAX_ARCS) arcsData.shift();
-      globe.arcsData([...arcsData]);
-      pointsData.push({ lat: pkt.lat, lng: pkt.lon, size: 0.3 + Math.random() * 0.4, color: POINT_COLORS[stats.total % POINT_COLORS.length] });
-      if (pointsData.length > MAX_POINTS) pointsData.shift();
-      globe.pointsData([...pointsData]);
-
-      // Labels: show city/country at geo point
-      const labelText = (pkt.city && pkt.country) ? pkt.city + ', ' + pkt.country
-        : pkt.country || pkt.city || pkt.ip;
-      labelsData.push({
-        lat: pkt.lat, lng: pkt.lon,
-        label: labelText,
-        labelSize: 0.55,
-        labelColor: POINT_COLORS[stats.total % POINT_COLORS.length]
-      });
-      if (labelsData.length > MAX_LABELS) labelsData.shift();
-      globe.labelsData([...labelsData]);
-    }
-  }
-
   // Create a curved arc for Leaflet (quadratic bezier approximation)
   function createLeafletArc(from, to, color) {
     try {
@@ -556,14 +642,7 @@
   }
 
   // ---- Packet Log ----
-  function addPacketToLog(pkt) {
-    const e = document.createElement('div');
-    e.className = 'log-entry';
-    const ts = new Date().toLocaleTimeString('de-DE');
-    e.innerHTML = '<span class="log-ts">' + ts + '</span> <span class="log-ip">' + pkt.ip + '</span> <span class="log-geo">' + (pkt.city || '?') + ', ' + (pkt.country || '?') + ' (' + pkt.lat.toFixed(2) + ', ' + pkt.lon.toFixed(2) + ')</span>';
-    packetLog.appendChild(e);
-    trimLog();
-  }
+  // Note: addPacketToLog is now handled inside handlePacketBatch for batched DOM updates
 
   function addLogEntry(type, msg, cls) {
     const e = document.createElement('div');
